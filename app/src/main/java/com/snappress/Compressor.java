@@ -1,0 +1,73 @@
+package com.snappress;
+
+import android.graphics.Bitmap;
+
+public final class Compressor {
+
+    public static final long TARGET_BYTES = 300 * 1024;
+
+    private static final int MAX_QUALITY = 92;
+    private static final int MIN_QUALITY = 40;
+    private static final int MIN_DIMENSION = 1280;
+
+    public static class Result {
+        public final byte[] data;
+        public final int width;
+        public final int height;
+        public final int quality;
+
+        Result(byte[] data, int width, int height, int quality) {
+            this.data = data;
+            this.width = width;
+            this.height = height;
+            this.quality = quality;
+        }
+    }
+
+    private Compressor() {
+    }
+
+    public static Result compress(Bitmap src, long targetBytes) {
+        Bitmap bmp = src;
+        int quality = MAX_QUALITY;
+
+        while (true) {
+            int found = -1;
+            int lo = MIN_QUALITY;
+            int hi = MAX_QUALITY;
+            while (lo <= hi) {
+                int mid = (lo + hi) / 2;
+                byte[] candidate = encode(bmp, mid);
+                if (candidate.length <= targetBytes) {
+                    found = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+
+            if (found >= 0) {
+                return new Result(encode(bmp, found), bmp.getWidth(), bmp.getHeight(), found);
+            }
+
+            int longest = Math.max(bmp.getWidth(), bmp.getHeight());
+            if (longest / 2 < MIN_DIMENSION) {
+                return new Result(encode(bmp, MIN_QUALITY), bmp.getWidth(), bmp.getHeight(), MIN_QUALITY);
+            }
+
+            int newW = Math.max(1, bmp.getWidth() * 3 / 4);
+            int newH = Math.max(1, bmp.getHeight() * 3 / 4);
+            Bitmap scaled = Bitmap.createScaledBitmap(bmp, newW, newH, true);
+            if (scaled != bmp && bmp != src) {
+                bmp.recycle();
+            }
+            bmp = scaled;
+        }
+    }
+
+    private static byte[] encode(Bitmap bmp, int quality) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        bmp.compress(Bitmap.CompressFormat.JPEG, quality, out);
+        return out.toByteArray();
+    }
+}
