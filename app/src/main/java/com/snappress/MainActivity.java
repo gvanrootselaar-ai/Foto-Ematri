@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.net.Uri;
 import android.os.Bundle;
+import android.database.Cursor;
 import android.provider.MediaStore;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
@@ -244,9 +245,7 @@ public class MainActivity extends AppCompatActivity {
 
             Compressor.Result result = Compressor.compress(stamped, Compressor.TARGET_BYTES);
 
-            String name = "SnapPress_"
-                    + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date())
-                    + ".jpg";
+            String name = nextFileName();
 
             ContentValues values = new ContentValues();
             values.put(MediaStore.Images.Media.DISPLAY_NAME, name);
@@ -279,6 +278,31 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             publishStatus("Fout: " + e.getMessage());
         }
+    }
+
+    private String nextFileName() {
+        String year = new SimpleDateFormat("yyyy", Locale.US).format(new Date());
+        int max = 0;
+        Cursor cursor = getContentResolver().query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                new String[]{MediaStore.Images.Media.DISPLAY_NAME},
+                MediaStore.Images.Media.DISPLAY_NAME + " LIKE ?",
+                new String[]{year + "_%"},
+                null);
+        if (cursor != null) {
+            while (cursor.moveToNext()) {
+                String n = cursor.getString(0);
+                int dot = n.lastIndexOf('.');
+                if (dot > year.length() + 1) {
+                    try {
+                        max = Math.max(max, Integer.parseInt(n.substring(year.length() + 1, dot)));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+            cursor.close();
+        }
+        return year + "_" + String.format(Locale.US, "%04d", max + 1) + ".jpg";
     }
 
     private void publishStatus(String message) {
