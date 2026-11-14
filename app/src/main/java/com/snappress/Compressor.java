@@ -27,6 +27,26 @@ public final class Compressor {
     private Compressor() {
     }
 
+    public static Bitmap centerCrop34(Bitmap src) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        int targetW;
+        int targetH;
+        if (w * 4 > h * 3) {
+            targetH = h;
+            targetW = h * 3 / 4;
+        } else {
+            targetW = w;
+            targetH = w * 4 / 3;
+        }
+        if (targetW == w && targetH == h) {
+            return src;
+        }
+        int x = (w - targetW) / 2;
+        int y = (h - targetH) / 2;
+        return Bitmap.createBitmap(src, x, y, targetW, targetH);
+    }
+
     public static Result compress(Bitmap src, long targetBytes) {
         Bitmap bmp = src;
         int quality = MAX_QUALITY;

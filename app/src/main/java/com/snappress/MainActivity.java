@@ -90,7 +90,12 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            Compressor.Result result = Compressor.compress(bitmap, Compressor.TARGET_BYTES);
+            Bitmap cropped = Compressor.centerCrop34(bitmap);
+            if (cropped != bitmap) {
+                bitmap.recycle();
+            }
+
+            Compressor.Result result = Compressor.compress(cropped, Compressor.TARGET_BYTES);
 
             try (OutputStream os = getContentResolver().openOutputStream(uri, "wt")) {
                 os.write(result.data);

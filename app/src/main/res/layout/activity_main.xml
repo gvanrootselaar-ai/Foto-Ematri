@@ -19,7 +19,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:gravity="center"
-        android:text="Maak een foto: die wordt direct gecomprimeerd naar ongeveer 300 kB en opgeslagen in Afbeeldingen (Pictures)."
+        android:text="Maak een foto: die wordt direct bijgesneden naar 3:4, gecomprimeerd naar ongeveer 300 kB en opgeslagen in Afbeeldingen (Pictures)."
         android:textSize="15sp"
         android:textColor="#555555" />
 
