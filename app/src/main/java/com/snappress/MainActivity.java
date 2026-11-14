@@ -1,93 +1,234 @@
 package com.snappress;
 
-import android.app.Activity;
+import android.Manifest;
 import android.content.ContentValues;
-import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
+import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
-import androidx.exifinterface.media.ExifInterface;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.Camera;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.FocusMeteringAction;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.MeteringPoint;
+import androidx.camera.core.Preview;
+import androidx.camera.core.ZoomState;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
 
-    private static final int REQ_CAPTURE = 1;
+    private static final int REQ_CAMERA = 10;
 
-    private Uri pendingUri;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-
+    private PreviewView previewView;
+    private View focusRing;
     private TextView status;
+    private Button flashButton;
+
+    private ImageCapture imageCapture;
+    private Camera camera;
+    private int flashMode = ImageCapture.FLASH_MODE_AUTO;
+
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private ScaleGestureDetector scaleDetector;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        previewView = findViewById(R.id.preview);
+        focusRing = findViewById(R.id.focus_ring);
         status = findViewById(R.id.status);
-        Button capture = findViewById(R.id.btn_capture);
-        capture.setOnClickListener(v -> startCapture());
-    }
+        flashButton = findViewById(R.id.btn_flash);
 
-    private void startCapture() {
-        String name = "SnapPress_"
-                + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date())
-                + ".jpg";
+        flashButton.setOnClickListener(v -> cycleFlash());
+        findViewById(R.id.btn_shutter).setOnClickListener(v -> takePhoto());
 
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.DISPLAY_NAME, name);
-        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures");
+        scaleDetector = new ScaleGestureDetector(this,
+                new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override
+                    public boolean onScale(@NonNull ScaleGestureDetector detector) {
+                        if (camera == null) {
+                            return false;
+                        }
+                        ZoomState state = camera.getCameraInfo().getZoomState().getValue();
+                        float current = state != null ? state.getZoomRatio() : 1f;
+                        camera.getCameraControl().setZoomRatio(current * detector.getScaleFactor());
+                        return true;
+                    }
+                });
 
-        pendingUri = getContentResolver().insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        previewView.setOnTouchListener((v, event) -> {
+            scaleDetector.onTouchEvent(event);
+            if (!scaleDetector.isInProgress() && event.getAction() == MotionEvent.ACTION_UP) {
+                handleTap(event.getX(), event.getY());
+            }
+            return true;
+        });
 
-        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        intent.putExtra(MediaStore.EXTRA_OUTPUT, pendingUri);
-        startActivityForResult(intent, REQ_CAPTURE);
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED) {
+            startCamera();
+        } else {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+        }
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_CAPTURE) {
-            return;
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_CAMERA) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startCamera();
+            } else {
+                status.setText("Cameratoegang geweigerd. Sta toegang toe in de instellingen.");
+            }
         }
-        final Uri uri = pendingUri;
-        pendingUri = null;
-        if (uri == null) {
-            return;
-        }
-        if (resultCode != RESULT_OK) {
-            getContentResolver().delete(uri, null, null);
-            status.setText("Geen foto gemaakt.");
-            return;
-        }
-
-        status.setText("Foto verwerken…");
-        executor.execute(() -> processPhoto(uri));
     }
 
-    private void processPhoto(Uri uri) {
+    private void startCamera() {
+        ProcessCameraProvider.getInstance(this).addListener(() -> {
+            try {
+                ProcessCameraProvider provider = ProcessCameraProvider.getInstance(this).get();
+                Preview preview = new Preview.Builder().build();
+                preview.setSurfaceProvider(previewView.getSurfaceProvider());
+
+                imageCapture = new ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                        .build();
+
+                provider.unbindAll();
+                camera = provider.bindToLifecycle(this,
+                        CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture);
+            } catch (Exception e) {
+                status.setText("Camera kon niet worden gestart: " + e.getMessage());
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private void handleTap(float x, float y) {
+        if (camera == null) {
+            return;
+        }
+        MeteringPoint point = previewView.getMeteringPointFactory().createPoint(x, y);
+        camera.getCameraControl().startFocusAndMetering(
+                new FocusMeteringAction.Builder(point,
+                        FocusMeteringAction.FLAG_AF
+                                | FocusMeteringAction.FLAG_AE
+                                | FocusMeteringAction.FLAG_AWB)
+                        .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                        .build());
+        showFocusRing(x, y);
+    }
+
+    private void showFocusRing(float x, float y) {
+        focusRing.animate().cancel();
+        focusRing.setAlpha(1f);
+        focusRing.setX(x - focusRing.getWidth() / 2f);
+        focusRing.setY(y - focusRing.getHeight() / 2f);
+        focusRing.setVisibility(View.VISIBLE);
+        focusRing.setScaleX(1.5f);
+        focusRing.setScaleY(1.5f);
+        focusRing.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
+        focusRing.animate().alpha(0f).setStartDelay(2000).setDuration(300).start();
+    }
+
+    private void cycleFlash() {
+        switch (flashMode) {
+            case ImageCapture.FLASH_MODE_AUTO:
+                flashMode = ImageCapture.FLASH_MODE_ON;
+                flashButton.setText("Flits: aan");
+                break;
+            case ImageCapture.FLASH_MODE_ON:
+                flashMode = ImageCapture.FLASH_MODE_OFF;
+                flashButton.setText("Flits: uit");
+                break;
+            default:
+                flashMode = ImageCapture.FLASH_MODE_AUTO;
+                flashButton.setText("Flits: auto");
+        }
+        if (imageCapture != null) {
+            imageCapture.setFlashMode(flashMode);
+        }
+    }
+
+    private void takePhoto() {
+        if (imageCapture == null) {
+            status.setText("Camera is nog niet klaar.");
+            return;
+        }
+        status.setText("Foto maken…");
+        imageCapture.takePicture(ContextCompat.getMainExecutor(this),
+                new ImageCapture.OnImageCapturedCallback() {
+                    @Override
+                    public void onCaptureSuccess(@NonNull ImageProxy image) {
+                        byte[] jpeg = imageProxyToBytes(image);
+                        int rotation = image.getImageInfo().getRotationDegrees();
+                        image.close();
+                        status.setText("Verwerken…");
+                        executor.execute(() -> processPhoto(jpeg, rotation));
+                    }
+
+                    @Override
+                    public void onError(@NonNull ImageCaptureException e) {
+                        status.setText("Fout bij foto: " + e.getMessage());
+                    }
+                });
+    }
+
+    private byte[] imageProxyToBytes(ImageProxy image) {
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return bytes;
+    }
+
+    private void processPhoto(byte[] jpeg, int rotation) {
         try {
-            byte[] original = readAll(uri);
-            Bitmap bitmap = decodeOriented(original);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
             if (bitmap == null) {
-                publish(uri, null, "Kon de foto niet lezen.");
+                publishStatus("Kon de foto niet lezen.");
                 return;
+            }
+
+            if (rotation != 0) {
+                Matrix matrix = new Matrix();
+                matrix.postRotate(rotation);
+                Bitmap rotated = Bitmap.createBitmap(
+                        bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+                if (rotated != bitmap) {
+                    bitmap.recycle();
+                }
+                bitmap = rotated;
             }
 
             Bitmap cropped = Compressor.centerCrop34(bitmap);
@@ -103,6 +244,23 @@ public class MainActivity extends Activity {
 
             Compressor.Result result = Compressor.compress(stamped, Compressor.TARGET_BYTES);
 
+            String name = "SnapPress_"
+                    + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date())
+                    + ".jpg";
+
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures");
+            values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+            Uri uri = getContentResolver().insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                publishStatus("Opslaan mislukt.");
+                return;
+            }
+
             try (OutputStream os = getContentResolver().openOutputStream(uri, "wt")) {
                 os.write(result.data);
             }
@@ -113,77 +271,18 @@ public class MainActivity extends Activity {
             update.put(MediaStore.Images.Media.HEIGHT, result.height);
             getContentResolver().update(uri, update, null, null);
 
-            publish(uri, result,
-                    "Opgeslagen in Afbeeldingen (Pictures)\n"
-                            + formatBytes(original.length) + " → " + formatBytes(result.data.length)
-                            + " • " + result.width + "×" + result.height
-                            + " • kwaliteit " + result.quality);
+            String message = "Opgeslagen in Afbeeldingen (Pictures)\n"
+                    + formatBytes(jpeg.length) + " → " + formatBytes(result.data.length)
+                    + " • " + result.width + "×" + result.height
+                    + " • kwaliteit " + result.quality;
+            publishStatus(message);
         } catch (Exception e) {
-            publish(uri, null, "Fout: " + e.getMessage());
+            publishStatus("Fout: " + e.getMessage());
         }
     }
 
-    private Bitmap decodeOriented(byte[] bytes) {
-        Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        if (bmp == null) {
-            return null;
-        }
-        int rotation = 0;
-        try {
-            ExifInterface exif = new ExifInterface(new java.io.ByteArrayInputStream(bytes));
-            int orientation = exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-            switch (orientation) {
-                case ExifInterface.ORIENTATION_ROTATE_90:
-                    rotation = 90;
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_180:
-                    rotation = 180;
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_270:
-                    rotation = 270;
-                    break;
-                default:
-                    rotation = 0;
-            }
-        } catch (IOException ignored) {
-        }
-        if (rotation == 0) {
-            return bmp;
-        }
-        Matrix matrix = new Matrix();
-        matrix.postRotate(rotation);
-        Bitmap rotated = Bitmap.createBitmap(
-                bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), matrix, true);
-        if (rotated != bmp) {
-            bmp.recycle();
-        }
-        return rotated;
-    }
-
-    private void publish(Uri uri, Compressor.Result result, String message) {
-        if (result == null) {
-            try {
-                getContentResolver().delete(uri, null, null);
-            } catch (Exception ignored) {
-            }
-        }
+    private void publishStatus(String message) {
         runOnUiThread(() -> status.setText(message));
-    }
-
-    private byte[] readAll(Uri uri) throws IOException {
-        InputStream in = getContentResolver().openInputStream(uri);
-        if (in == null) {
-            throw new IOException("Kan bestand niet openen");
-        }
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buf = new byte[64 * 1024];
-        int n;
-        while ((n = in.read(buf)) > 0) {
-            out.write(buf, 0, n);
-        }
-        in.close();
-        return out.toByteArray();
     }
 
     private static String formatBytes(long bytes) {
