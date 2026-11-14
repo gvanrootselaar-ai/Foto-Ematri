@@ -32,7 +32,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.exifinterface.media.ExifInterface;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -221,21 +223,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void processPhoto(byte[] jpeg, int rotation) {
         try {
-            Bitmap bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+            Bitmap bitmap = decodeUpright(jpeg, rotation);
             if (bitmap == null) {
                 publishStatus("Kon de foto niet lezen.");
                 return;
-            }
-
-            if (rotation != 0) {
-                Matrix matrix = new Matrix();
-                matrix.postRotate(rotation);
-                Bitmap rotated = Bitmap.createBitmap(
-                        bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-                if (rotated != bitmap) {
-                    bitmap.recycle();
-                }
-                bitmap = rotated;
             }
 
             Bitmap cropped = Compressor.centerCrop34(bitmap);
@@ -314,6 +305,45 @@ public class MainActivity extends AppCompatActivity {
             cursor.close();
         }
         return year + "_" + String.format(Locale.US, "%04d", max + 1) + ".jpg";
+    }
+
+    private Bitmap decodeUpright(byte[] jpeg, int rotationDegrees) {
+        Bitmap bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+        if (bitmap == null) {
+            return null;
+        }
+        int rotation = rotationDegrees;
+        if (rotation == 0) {
+            try {
+                ExifInterface exif = new ExifInterface(new ByteArrayInputStream(jpeg));
+                switch (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL)) {
+                    case ExifInterface.ORIENTATION_ROTATE_90:
+                        rotation = 90;
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_180:
+                        rotation = 180;
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_270:
+                        rotation = 270;
+                        break;
+                    default:
+                        rotation = 0;
+                }
+            } catch (IOException ignored) {
+            }
+        }
+        if (rotation != 0) {
+            Matrix matrix = new Matrix();
+            matrix.postRotate(rotation);
+            Bitmap rotated = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+            if (rotated != bitmap) {
+                bitmap.recycle();
+            }
+            bitmap = rotated;
+        }
+        return bitmap;
     }
 
     private void publishStatus(String message) {
