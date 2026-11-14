@@ -243,7 +243,12 @@ public class MainActivity extends AppCompatActivity {
                 cropped.recycle();
             }
 
-            Compressor.Result result = Compressor.compress(stamped, Compressor.TARGET_BYTES);
+            Bitmap scaled = Compressor.scaleToLongSide(stamped);
+            if (scaled != stamped) {
+                stamped.recycle();
+            }
+
+            Compressor.Result result = Compressor.compress(scaled, Compressor.TARGET_BYTES);
 
             String name = nextFileName();
 

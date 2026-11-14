@@ -7,11 +7,10 @@ import android.graphics.Paint;
 
 public final class Compressor {
 
-    public static final long TARGET_BYTES = 300 * 1024;
-
-    private static final int MAX_QUALITY = 92;
-    private static final int MIN_QUALITY = 40;
-    private static final int MIN_DIMENSION = 1280;
+    public static final long TARGET_BYTES = 700 * 1024;
+    public static final int TARGET_QUALITY = 70;
+    public static final int MIN_QUALITY = 40;
+    public static final int LONG_SIDE = 2048;
 
     public static class Result {
         public final byte[] data;
@@ -51,41 +50,34 @@ public final class Compressor {
     }
 
     public static Result compress(Bitmap src, long targetBytes) {
-        Bitmap bmp = src;
-        int quality = MAX_QUALITY;
-
-        while (true) {
-            int found = -1;
-            int lo = MIN_QUALITY;
-            int hi = MAX_QUALITY;
-            while (lo <= hi) {
-                int mid = (lo + hi) / 2;
-                byte[] candidate = encode(bmp, mid);
-                if (candidate.length <= targetBytes) {
-                    found = mid;
-                    lo = mid + 1;
-                } else {
-                    hi = mid - 1;
-                }
+        int found = -1;
+        int lo = MIN_QUALITY;
+        int hi = TARGET_QUALITY;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            byte[] candidate = encode(src, mid);
+            if (candidate.length <= targetBytes) {
+                found = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
             }
-
-            if (found >= 0) {
-                return new Result(encode(bmp, found), bmp.getWidth(), bmp.getHeight(), found);
-            }
-
-            int longest = Math.max(bmp.getWidth(), bmp.getHeight());
-            if (longest / 2 < MIN_DIMENSION) {
-                return new Result(encode(bmp, MIN_QUALITY), bmp.getWidth(), bmp.getHeight(), MIN_QUALITY);
-            }
-
-            int newW = Math.max(1, bmp.getWidth() * 3 / 4);
-            int newH = Math.max(1, bmp.getHeight() * 3 / 4);
-            Bitmap scaled = Bitmap.createScaledBitmap(bmp, newW, newH, true);
-            if (scaled != bmp && bmp != src) {
-                bmp.recycle();
-            }
-            bmp = scaled;
         }
+        if (found >= 0) {
+            return new Result(encode(src, found), src.getWidth(), src.getHeight(), found);
+        }
+        return new Result(encode(src, MIN_QUALITY), src.getWidth(), src.getHeight(), MIN_QUALITY);
+    }
+
+    public static Bitmap scaleToLongSide(Bitmap src) {
+        int longest = Math.max(src.getWidth(), src.getHeight());
+        if (longest <= LONG_SIDE) {
+            return src;
+        }
+        float scale = LONG_SIDE / (float) longest;
+        int w = Math.round(src.getWidth() * scale);
+        int h = Math.round(src.getHeight() * scale);
+        return Bitmap.createScaledBitmap(src, w, h, true);
     }
 
     public static Bitmap stampDate(Bitmap src, String dateText) {
