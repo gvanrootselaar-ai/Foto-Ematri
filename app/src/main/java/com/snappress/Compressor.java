@@ -34,12 +34,12 @@ public final class Compressor {
         int h = src.getHeight();
         int targetW;
         int targetH;
-        if (w * 4 > h * 3) {
+        if (w > h) {
+            targetW = w;
+            targetH = w * 3 / 4;
+        } else {
             targetH = h;
             targetW = h * 3 / 4;
-        } else {
-            targetW = w;
-            targetH = w * 4 / 3;
         }
         if (targetW == w && targetH == h) {
             return src;

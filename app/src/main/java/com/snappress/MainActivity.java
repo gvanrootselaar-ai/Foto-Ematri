@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
+import android.media.MediaActionSound;
 import android.net.Uri;
 import android.os.Bundle;
 import android.database.Cursor;
@@ -58,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private ScaleGestureDetector scaleDetector;
+    private MediaActionSound shutterSound;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +73,9 @@ public class MainActivity extends AppCompatActivity {
 
         flashButton.setOnClickListener(v -> cycleFlash());
         findViewById(R.id.btn_shutter).setOnClickListener(v -> takePhoto());
+
+        shutterSound = new MediaActionSound();
+        shutterSound.load(MediaActionSound.SHUTTER_CLICK);
 
         scaleDetector = new ScaleGestureDetector(this,
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -192,6 +197,7 @@ public class MainActivity extends AppCompatActivity {
                 new ImageCapture.OnImageCapturedCallback() {
                     @Override
                     public void onCaptureSuccess(@NonNull ImageProxy image) {
+                        shutterSound.play(MediaActionSound.SHUTTER_CLICK);
                         byte[] jpeg = imageProxyToBytes(image);
                         int rotation = image.getImageInfo().getRotationDegrees();
                         image.close();
