@@ -1,6 +1,9 @@
 package com.snappress;
 
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 
 public final class Compressor {
 
@@ -83,6 +86,24 @@ public final class Compressor {
             }
             bmp = scaled;
         }
+    }
+
+    public static Bitmap stampDate(Bitmap src, String dateText) {
+        Bitmap out = src.copy(Bitmap.Config.ARGB_8888, true);
+        if (out == null) {
+            return src;
+        }
+        Canvas canvas = new Canvas(out);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.WHITE);
+        float textSize = Math.max(28f, out.getWidth() * 0.035f);
+        paint.setTextSize(textSize);
+        paint.setShadowLayer(textSize / 8f, textSize / 16f, textSize / 16f, Color.BLACK);
+        float margin = out.getWidth() * 0.03f;
+        float x = out.getWidth() - margin - paint.measureText(dateText);
+        float y = out.getHeight() - margin;
+        canvas.drawText(dateText, x, y, paint);
+        return out;
     }
 
     private static byte[] encode(Bitmap bmp, int quality) {

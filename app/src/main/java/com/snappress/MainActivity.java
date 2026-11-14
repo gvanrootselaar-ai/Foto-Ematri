@@ -95,7 +95,13 @@ public class MainActivity extends Activity {
                 bitmap.recycle();
             }
 
-            Compressor.Result result = Compressor.compress(cropped, Compressor.TARGET_BYTES);
+            String dateText = new SimpleDateFormat("dd:MM:yyyy", Locale.US).format(new Date());
+            Bitmap stamped = Compressor.stampDate(cropped, dateText);
+            if (stamped != cropped) {
+                cropped.recycle();
+            }
+
+            Compressor.Result result = Compressor.compress(stamped, Compressor.TARGET_BYTES);
 
             try (OutputStream os = getContentResolver().openOutputStream(uri, "wt")) {
                 os.write(result.data);
